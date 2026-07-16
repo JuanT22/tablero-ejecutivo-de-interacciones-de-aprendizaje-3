@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UTPL - Tablero Ejecutivo de Analíticas de Aprendizaje Juan Tacuri</title>
+  <title>UTPL - Tablero Ejecutivo de Analíticas de Aprendizaje</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
@@ -120,10 +120,18 @@
         <div class="h-40 mt-4"><canvas id="chart-resource-actions"></canvas></div>
       </div>
       <div class="lg:col-span-3 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm h-[470px] flex flex-col">
-        <div class="flex justify-between items-center mb-3"><h3 class="chart-title">Visor del recurso</h3><a id="open-resource" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-utpl-blue font-bold">Abrir en nueva pestaña</a></div>
+        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
+          <h3 class="chart-title">Visor del recurso</h3>
+          <div class="flex items-center gap-2">
+            <button id="load-preview" type="button" class="px-3 py-2 rounded-lg bg-utpl-blue text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">
+              <i class="fa-solid fa-eye mr-1"></i>Cargar vista previa
+            </button>
+            <a id="open-resource" href="#" target="_blank" rel="noopener noreferrer" class="px-3 py-2 rounded-lg border border-slate-200 text-xs text-utpl-blue font-bold">Abrir en nueva pestaña</a>
+          </div>
+        </div>
         <div class="flex-grow bg-slate-50 border rounded-xl overflow-hidden flex items-center justify-center">
-          <iframe id="resource-frame" class="w-full h-full hidden" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
-          <div id="resource-fallback" class="text-center p-6 text-sm text-slate-500">Seleccione un recurso con URL válida.</div>
+          <iframe id="resource-frame" class="w-full h-full hidden" loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+          <div id="resource-fallback" class="text-center p-6 text-sm text-slate-500">Seleccione un recurso. La vista previa no se cargará hasta pulsar <b>Cargar vista previa</b>.</div>
         </div>
       </div>
     </section>
@@ -429,15 +437,51 @@
       return aliases.some(alias => type === alias || type.includes(alias));
     }
 
-    function shortResourceLabel(resource, index) {
-      const raw = resource.url || `Recurso ${index + 1}`;
+    function getResourceAcademicContext(resource) {
+      const combinations = new Map();
+      resource.rows.forEach(row => {
+        const code = normalizeText(row['Código asignatura']) || 'Sin código';
+        const career = normalizeText(row['Carrera']) || 'Sin carrera';
+        combinations.set(`${code}|||${career}`, { code, career });
+      });
+      return [...combinations.values()];
+    }
+
+    function shortResourceIdentifier(resource) {
+      const raw = resource.url || 'Recurso sin URL';
       try {
         const url = new URL(raw);
         const last = url.pathname.split('/').filter(Boolean).pop() || url.hostname;
-        return `${index + 1}. ${last.slice(0, 24)}`;
+        return last.slice(0, 22);
       } catch {
-        return `${index + 1}. ${raw.slice(0, 28)}`;
+        return raw.slice(0, 24);
       }
+    }
+
+    function shortResourceLabel(resource, index) {
+      const contexts = getResourceAcademicContext(resource);
+      const identifier = shortResourceIdentifier(resource);
+
+      if (contexts.length === 1) {
+        const { code, career } = contexts[0];
+        const shortCareer = career.length > 30 ? `${career.slice(0, 29)}…` : career;
+        return [
+          `${index + 1}. ${identifier}`,
+          `${code} · ${shortCareer}`
+        ];
+      }
+
+      const codes = [...new Set(contexts.map(item => item.code))];
+      const careers = [...new Set(contexts.map(item => item.career))];
+      return [
+        `${index + 1}. ${identifier}`,
+        `${codes.length} asignaturas · ${careers.length} carreras`
+      ];
+    }
+
+    function resourceAcademicTooltip(resource) {
+      const contexts = getResourceAcademicContext(resource);
+      return contexts.map(item => `${item.code} · ${item.career}`);
     }
 
     function buildRankings(resources) {
@@ -595,6 +639,16 @@
           },
           tooltip: {
             callbacks: {
+              title(contexts) {
+                const index = contexts?.[0]?.dataIndex;
+                const resource = Array.isArray(options.resources) ? options.resources[index] : null;
+                return resource?.url || contexts?.[0]?.label || '';
+              },
+              afterTitle(contexts) {
+                const index = contexts?.[0]?.dataIndex;
+                const resource = Array.isArray(options.resources) ? options.resources[index] : null;
+                return resource ? resourceAcademicTooltip(resource) : [];
+              },
               label(context) {
                 const value = Number(context.raw) || 0;
                 if (type === 'doughnut') {
@@ -664,6 +718,16 @@
             legend: { display: true, position: 'top' },
             tooltip: {
               callbacks: {
+                title(contexts) {
+                  const index = contexts?.[0]?.dataIndex;
+                  const resource = Array.isArray(options.resources) ? options.resources[index] : null;
+                  return resource?.url || contexts?.[0]?.label || '';
+                },
+                afterTitle(contexts) {
+                  const index = contexts?.[0]?.dataIndex;
+                  const resource = Array.isArray(options.resources) ? options.resources[index] : null;
+                  return resource ? resourceAcademicTooltip(resource) : [];
+                },
                 label: context => `${context.dataset.label}: ${Number(context.raw || 0).toLocaleString('es-EC')}`
               }
             }
@@ -693,6 +757,7 @@
         'Tiempo acumulado',
         {
           indexAxis: 'y',
+          resources: rankings.genially,
           valueFormatter: formatTime,
           scales: { x: { beginAtZero: true, ticks: { callback: value => formatTime(value) } } }
         }
@@ -705,7 +770,7 @@
           { label: 'Play', data: rankings.youtube.map(resource => resource.plays), backgroundColor: '#002F6C' },
           { label: 'Finalizaron', data: rankings.youtube.map(resource => resource.ended), backgroundColor: '#10B981' }
         ],
-        { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+        { indexAxis: 'y', resources: rankings.youtube, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
       );
 
       makeChart(
@@ -714,7 +779,7 @@
         rankings.canvasFiles.map(shortResourceLabel),
         rankings.canvasFiles.map(resource => resource.ratingCount),
         'Número de valoraciones',
-        { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+        { indexAxis: 'y', resources: rankings.canvasFiles, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
       );
 
       makeChart(
@@ -723,7 +788,7 @@
         rankings.videos.map(shortResourceLabel),
         rankings.videos.map(resource => resource.ratingCount),
         'Número de valoraciones',
-        { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+        { indexAxis: 'y', resources: rankings.videos, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
       );
 
       return rankings;
@@ -743,8 +808,9 @@
         const items = rankings[key] || [];
         if (!items.length) return;
         options.push(`<optgroup label="${escapeHtml(label)}">`);
-        items.forEach((resource, index) => {
-          options.push(`<option value="${escapeHtml(resource.key)}">${escapeHtml(shortResourceLabel(resource, index))} — ${escapeHtml(resource.url)}</option>`);
+        items.forEach((resource) => {
+          // En la auditoría se muestra únicamente la URL del recurso.
+          options.push(`<option value="${escapeHtml(resource.key)}">${escapeHtml(resource.url)}</option>`);
         });
         options.push('</optgroup>');
       });
@@ -806,44 +872,109 @@
         if (location.protocol === 'http:' || location.protocol === 'https:') {
           params.set('origin', location.origin);
         }
-        return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
+        // Se usa el dominio estándar de YouTube. En algunos entornos protegidos,
+        // youtube-nocookie puede devolver el error 153 por falta de referencia.
+        return `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
       }
       return /^https?:\/\//i.test(original) ? original : '';
     }
+
+    let pendingPreviewUrl = '';
 
     function updateViewer(url) {
       const frame = document.getElementById('resource-frame');
       const fallback = document.getElementById('resource-fallback');
       const link = document.getElementById('open-resource');
-      const embedUrl = getEmbeddableUrl(url);
-      const isYouTube = Boolean(getYouTubeVideoId(url));
+      const loadButton = document.getElementById('load-preview');
 
-      link.href = url || '#';
+      pendingPreviewUrl = normalizeText(url);
+      link.href = pendingPreviewUrl || '#';
+      loadButton.disabled = !pendingPreviewUrl;
+
+      // Evita conexiones automáticas desde la vista previa protegida de Gemini.
       frame.removeAttribute('src');
+      frame.classList.add('hidden');
+      fallback.classList.remove('hidden');
 
-      if (isYouTube && location.protocol === 'file:') {
-        frame.classList.add('hidden');
-        fallback.classList.remove('hidden');
-        fallback.innerHTML = `
-          <div class="space-y-3">
-            <i class="fa-brands fa-youtube text-4xl text-rose-600"></i>
-            <p class="font-bold text-slate-700">YouTube bloquea la reproducción desde archivos abiertos con <code>file://</code>.</p>
-            <p>Abra este tablero mediante un servidor local, por ejemplo: <code class="block mt-2 p-2 bg-white border rounded">python3 -m http.server 8000</code></p>
-            <p>Luego ingrese a <code>http://localhost:8000/tablero_utpl_youtube_corregido.html</code>.</p>
-          </div>`;
+      if (!pendingPreviewUrl) {
+        fallback.textContent = 'El recurso no dispone de una URL válida para previsualización.';
         return;
       }
 
-      if (embedUrl) {
-        fallback.innerHTML = 'Seleccione un recurso con URL válida.';
-        frame.src = embedUrl;
-        frame.classList.remove('hidden');
-        fallback.classList.add('hidden');
-      } else {
+      const host = (() => {
+        try { return new URL(pendingPreviewUrl).hostname.replace(/^www\./, ''); }
+        catch { return 'recurso externo'; }
+      })();
+
+      fallback.innerHTML = `
+        <div class="space-y-3 max-w-md">
+          <i class="fa-solid fa-shield-halved text-4xl text-utpl-blue"></i>
+          <p class="font-bold text-slate-700">Vista previa en espera</p>
+          <p>Para evitar solicitudes repetidas de acceso a la red, el tablero no se conectará automáticamente a <b>${escapeHtml(host)}</b>.</p>
+          <p>Pulse <b>Cargar vista previa</b> solo cuando desee visualizar este recurso, o utilice <b>Abrir en nueva pestaña</b>.</p>
+        </div>`;
+    }
+
+    function isRestrictedPreviewEnvironment() {
+      const host = (location.hostname || '').toLowerCase();
+      return location.protocol === 'file:' ||
+        host.includes('googleusercontent.com') ||
+        host.includes('gemini') ||
+        host.includes('sandbox') ||
+        host.includes('usercontent');
+    }
+
+    function showYouTubeVisualPreview(videoId) {
+      const frame = document.getElementById('resource-frame');
+      const fallback = document.getElementById('resource-fallback');
+      const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+      const thumbnail = `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
+
+      frame.removeAttribute('src');
+      frame.classList.add('hidden');
+      fallback.classList.remove('hidden');
+      fallback.innerHTML = `
+        <div class="w-full h-full relative bg-slate-950 flex items-center justify-center overflow-hidden">
+          <img src="${thumbnail}" alt="Previsualización del video de YouTube" class="w-full h-full object-contain bg-black" referrerpolicy="no-referrer">
+          <div class="absolute inset-0 flex items-center justify-center bg-black/20">
+            <a href="${watchUrl}" target="_blank" rel="noopener noreferrer"
+               class="inline-flex items-center gap-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-5 py-3 font-bold shadow-lg">
+              <i class="fa-brands fa-youtube text-2xl"></i>
+              Reproducir en YouTube
+            </a>
+          </div>
+          <div class="absolute bottom-3 left-3 right-3 rounded-lg bg-black/70 px-3 py-2 text-xs text-white">
+            Gemini bloquea algunos reproductores integrados por su política de referencia. La miniatura permite identificar el video y abrirlo sin mostrar el error 153.
+          </div>
+        </div>`;
+    }
+
+    function loadPendingPreview() {
+      const frame = document.getElementById('resource-frame');
+      const fallback = document.getElementById('resource-fallback');
+      const embedUrl = getEmbeddableUrl(pendingPreviewUrl);
+      const videoId = getYouTubeVideoId(pendingPreviewUrl);
+      const isYouTube = Boolean(videoId);
+
+      if (!pendingPreviewUrl || !embedUrl) {
         frame.classList.add('hidden');
         fallback.classList.remove('hidden');
         fallback.textContent = 'El recurso no dispone de una URL válida para previsualización.';
+        return;
       }
+
+      // En Gemini, archivos locales y otras vistas previas protegidas, YouTube
+      // suele responder con error 153 porque el iframe no recibe un Referer válido.
+      // En esos casos se muestra una previsualización visual funcional.
+      if (isYouTube && isRestrictedPreviewEnvironment()) {
+        showYouTubeVisualPreview(videoId);
+        return;
+      }
+
+      frame.referrerPolicy = 'origin-when-cross-origin';
+      frame.src = embedUrl;
+      frame.classList.remove('hidden');
+      fallback.classList.add('hidden');
     }
 
     function renderTable(resources) {
@@ -878,6 +1009,7 @@
     document.getElementById('filter-rating').addEventListener('change', () => applyFilters());
     document.getElementById('top-resource-count').addEventListener('input', () => updateDashboard());
     document.getElementById('resource-selector').addEventListener('change', analyseSelectedResource);
+    document.getElementById('load-preview').addEventListener('click', loadPendingPreview);
 
     renderChecklist([]);
     rawData = demoData;
